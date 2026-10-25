@@ -16,7 +16,7 @@ def exact_scan(idx, q, k, mask):
 def postfilter_adaptive(idx, q, k, mask, start=64, max_nprobe=None):
     """Probe at least `start` partitions, then keep doubling until k matches are found."""
     max_nprobe = max_nprobe or idx.nlist
-    order = idx.probe(q, idx.nlist)              # all partitions, nearest first
+    order = idx.probe(q, idx.nlist)             
     nprobe = start
     while True:
         ids, sims = idx.search_parts(q, k, order[:nprobe], mask)
@@ -27,7 +27,7 @@ def postfilter_adaptive(idx, q, k, mask, start=64, max_nprobe=None):
 
 def partition_restricted(idx, q, k, mask, nprobe=64):
     """Only partitions holding at least one matching item; take the nearest nprobe of those."""
-    part_has = idx.partitions_with(mask)         # partition ids that contain a match
+    part_has = idx.partitions_with(mask)        
     if len(part_has) == 0:
         return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
     d = idx.cnorm[part_has] - 2.0 * (idx.centroids[part_has] @ q)

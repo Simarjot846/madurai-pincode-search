@@ -1,97 +1,128 @@
-madurai-pincode-search
+# Madurai Pincode Search: Filtered Vector Search Planner
 
-Vector search over about 46,000 items, where every query also has filters like category, zone or price. The part I actually spent time on is the planner: a small piece of code that looks at a query's filters, guesses how many items will match, and picks a search strategy to suit.
+Vector search with filters (zone, category, price) breaks when the filter is very selective.
+A search for "saree" inside Madurai only sees a tiny part of the catalogue, so the usual
+"search first, filter after" approach returns almost nothing.
 
-Why this exists
+This project builds a **query planner**. It estimates how many items a filter keeps, then picks
+one of three search strategies. It is compared with the two simple approaches the search team
+already tried.
 
-Filtered vector search sounds easy. You find the nearest neighbours, then throw away the ones that don't match the filter. It works fine when the filter is loose. It falls apart when the filter is tight.
+The catalogue has 46,228 items. All results are from one Windows laptop. They do not show
+production performance.
 
-I hit this with the Madurai zone. If a filter only matches a tiny slice of the data, the nearest neighbours you pull out of the index mostly don't match, so after filtering you're left with almost nothing and recall collapses. Plain post-filtering got recall down to 0.497, 0.196 and 0.139 on the narrower filters.
+## Setup
 
-So the real question is: which strategy should you use, and when?
+Windows PowerShell. Run these from the project folder.
 
-The three strategies
-exact_scan: apply the filter first, then brute-force the survivors. Slow on big result sets, perfect on small ones.
-postfilter_adaptive: search the index, filter afterwards. It starts by fetching 64 candidates and keeps doubling until it has enough matches. Fast when the filter is loose.
-partition_restricted: only look inside the IVF partitions that can contain matching items.
+```
+python -m venv .venv                 # make a private Python environment
+.venv\Scripts\activate              # turn it on
+pip install -r requirements.txt     # install the packages this project needs
+```
 
-The index is IVF with 200 lists.
+## Run
 
-How the planner decides
+```
+python tests/run_benchmark.py   # MAIN RESULT: planner vs two baselines, 5 selectivity buckets
+python tests/check_planner.py   # quick check on 7 hand-picked filters
+python tests/check_flips.py     # does a wrong estimate ever change the decision?
+python tests/run_calibrate.py   # tries every strategy on every bucket, used to set thresholds
+python tests/run_mutate.py      # deletes 10% of items, inserts 5% shifted items, re-runs
+python tests/run_break.py       # breaks the planner on purpose, 4 ways
+python tests/check_workload.py  # shows how many filters landed in each bucket
+```
 
-It estimates what fraction of items the filters will match, then:
+Close other apps and screen recorders before timing runs. Latency numbers can move by 30% or
+more with background load. Recall numbers stay the same from run to run.
 
-If the estimated match count is small (at most 2,500 rows, about 5.4% of the data), use exact_scan.
-Otherwise, if the filter is loose enough, use postfilter_adaptive.
-Otherwise, use partition_restricted.
+## How it works
 
-The estimate itself comes from two places. The first is a quick independence guess (multiply the individual filter selectivities together). The second is a correction from a sample of the real data. Independence is cheap but it's wrong when filters are correlated, and in this data they are.
+See `architecture.mmd` for the diagram.
 
-Results
+1. **Estimate** the share of items the filter keeps. A random sample is used first. If the
+   sample has fewer than 5 hits, a cheaper counter-based estimate is used instead.
+2. **Choose** a strategy:
+   - small result (up to 2,500 rows): `exact_scan`. Filter first, then check every survivor.
+   - big result (5% or more): `postfilter_adaptive`. Search at least 64 partitions, then keep
+     doubling until 10 matches are found.
+   - in between: `partition_restricted`. Search only the partitions that hold a match.
+3. **Search** with the chosen strategy.
 
-I tested five filter-size buckets, from "matches almost everything" down to "matches a handful of items". For each one: 4 filters, 8 queries per filter, k=10. Recall is against exact results, latency is the median per query.
+The thresholds (`t_exact_rows=2500`, `t_post_sel=0.05`) were set from the measurements in
+`run_calibrate.py`.
 
-bucket	planner recall	planner p50	always postfilter recall	always postfilter p50
-~100%	0.975	10.36 ms	0.975	10.12 ms
-~10%	0.984	1.58 ms	0.962	1.35 ms
-~1%	1.000	0.22 ms	0.972	0.37 ms
-~0.1%	1.000	0.11 ms	0.878	0.27 ms
-handful	1.000	0.04 ms	0.939	0.25 ms
+## Code layout
 
-What I take from this:
+- `src/ivf.py`: the index (200 partitions)
+- `src/filters.py`: filter checks and the two selectivity estimators
+- `src/strategies.py`: the three search strategies
+- `src/planner.py`: the planner that chooses between them
+- `src/baselines.py`: the two simple approaches (pure post-filter, pure pre-filter)
+- `src/workload.py`: builds the test filters, grouped into 5 selectivity buckets
+- `src/benchmark.py`, `src/calibrate.py`, `src/mutate.py`, `src/break_planner.py`: the test code
 
-On loose filters, the planner and adaptive post-filtering are about the same. At ~10% post-filtering is actually a bit faster (1.35 vs 1.58 ms). The planner's edge there is a slightly better recall, nothing more.
-On tight filters the planner wins on both counts. At ~0.1% and "handful", recall stays at 1.000 while always-postfilter drops to 0.878 and 0.939, and it's also 2.5x to 6x slower.
-The ~100% bucket tops out at 0.975 for everyone except the exact scan. That's the ANN index's ceiling, not something the planner can fix.
+## Results (recall@10, median latency per query)
 
-One more thing: the adaptive post-filter is not the naive one. The 64-and-double trick already rescues most of the damage, which is why the gap above is much smaller than the 0.497 / 0.196 / 0.139 I saw before.
+From `python tests/run_benchmark.py`:
 
-Breaking the planner on purpose
+| Bucket | Planner | Pure post-filter | Pure pre-filter |
+|---|---|---|---|
+| ~100% | 0.983 / 13.7 ms | 0.930 / 3.9 ms | 1.000 / 36.2 ms |
+| ~10% | 0.989 / 2.1 ms | 0.833 / 3.5 ms | 1.000 / 3.0 ms |
+| ~1% | 1.000 / 0.23 ms | 0.497 / 3.5 ms | 1.000 / 0.25 ms |
+| ~0.1% | 1.000 / 0.11 ms | 0.196 / 3.7 ms | 1.000 / 0.06 ms |
+| handful (5-40 items) | 1.000 / 0.06 ms | 0.139 / 4.5 ms | 1.000 / 0.06 ms |
 
-To see which parts of the design actually matter, I broke it four ways (src/break_planner.py):
+What the table shows:
 
-indep_only: drop the sample correction, use only the independence estimate.
-always_post: always use adaptive post-filtering.
-no_exact: never use exact_scan, so small filters go to partition_restricted.
-inverted: flip the decision, post-filter small filters and exact-scan big ones.
+- Pure post-filter loses most results as the filter gets narrower. This is the Madurai problem.
+- The planner keeps recall at 0.98 or higher in every bucket.
+- At ~100%, the planner is about 2.6x faster than pre-filter, but about 3.5x slower than pure
+  post-filter. It pays that cost to get higher recall (0.983 vs 0.930).
+- At ~10%, the planner is about 29% faster than pre-filter, with much better recall than
+  post-filter (0.989 vs 0.833).
+- At ~1% and below, the planner picks `exact_scan`, so it matches pre-filter. At ~0.1% it is
+  slightly slower (0.11 vs 0.06 ms), probably because of the cost of the estimate step. This
+  was not measured separately.
+- The ~100% bucket has only 4 filters, so its latency spread is loose.
 
-What happened:
+## Estimate check
 
-inverted was the worst, as expected. 28.6 ms instead of 10.4 ms at ~100%, and recall of 0.878 at ~0.1%.
-no_exact kept recall fine but was 2x to 2.7x slower on the small buckets (0.22 vs 0.11 ms at ~0.1%).
-always_post is covered in the table above.
-indep_only looked identical to the full planner.
+The independence-based estimate is often wrong. For some category + zone pairs it is off by
+up to about 35x.
 
-That last one deserves a straight answer, because I expected it to matter.
+I checked all 630 category x zone pairs. With the independence estimate, 0 decisions were
+wrong. With the planner's estimate, 0 were wrong. So the estimate error was real, but it never
+changed which strategy was picked at this scale. This covers category x zone pairs only. Price
+ranges and 3-filter combinations were not checked.
 
-The independence guess really is off. The worst pairs I found are underestimated by about 14x (true 1.05%, estimated 0.069%) and overestimated by about 35x (true 0.006%, estimated 0.225%). Zone 22, which is Madurai, shows up in all five of the worst overestimates. Clothing in Madurai is 2.2% of the data but the independence guess says 0.28%.
+## Mutation test
 
-But the decision never changed. I checked all 630 category x zone pairs (tests/check_flips.py) and counted how often each estimate sent a query down the wrong path. Both the independence estimate and the planner's estimate got it wrong 0 times. In every pair, the true count and the guessed count land on the same side of the 2,500-row line, so the planner picks the same strategy either way.
+Deleted 10% of items (46,228 down to 43,917 after inserts) and inserted 5% new items. The new
+items are all Pet Supplies in Madurai, at 1.5x price. The index was rebuilt. Only the
+estimators were left stale in the "stale" planner.
 
-So the honest summary is: the sample correction makes the estimate more accurate, but at 46k items I could not find a single case where that changed what the planner did. I'd expect it to matter on a bigger dataset or with more filters combined, but I haven't tested that, so I'm not claiming it.
+- True share of the new hot filter: 5.278%. Stale estimate: 0.250%.
+- Both the fresh and stale planners still chose `exact_scan`, so recall stayed 1.000.
+- On the mutated data, planner recall was 0.990 at ~100%, 0.992 at ~10%, and 1.000 below that.
 
-Limits of these numbers
-Only 32 or so queries per bucket, and each latency is a single run. Differences like 0.984 vs 0.962 recall, or 1.35 vs 1.58 ms, could easily be noise. Treat those as "about the same", not as wins.
-One dataset, one k (10), one machine.
-The flip check only covers category x zone pairs. I didn't test price ranges or three-filter combinations.
-The IVF index loses a little recall on its own, so nothing here reaches 1.000 on the big buckets unless it uses the exact scan.
-Running it
+## Break test
 
-Clone the repo, make a virtual environment, install the packages the code imports (numpy at the least), and run the scripts from the project root.
+| Broken planner | What happened |
+|---|---|
+| `indep_only` (no sample correction) | same as the good planner |
+| `always_post` | recall 0.878 at ~0.1%, 0.939 at handful |
+| `no_exact` | recall stayed fine, but 2-2.7x slower on small filters |
+| `inverted` | worst: 28.6 ms at ~100% (2.8x slower), recall 0.878 at ~0.1% |
 
-python tests/run_break.py     # finder for the worst estimates + the comparison table
-python tests/check_flips.py   # counts wrong decisions over all category x zone pairs
+## Limitations
 
-The first one builds the index, so it takes a bit. The second doesn't build anything and finishes in seconds.
-
-Layout
-data/                # the dataset and the processed vectors the tests load
-src/
-  dataset.py         # loads vectors, metadata, categories, titles
-  ivf.py             # the IVF index
-  filters.py         # predicates and exact masks
-  strategies.py      # exact_scan and the other strategies
-  planner.py         # the real planner
-  break_planner.py   # the four broken planners and the comparison code
-  workload.py        # builds the filter buckets
-tests/               # run_break.py, check_flips.py and the earlier step tests
+- At 46k items the planner is effectively two-tier (exact vs adaptive post-filter).
+  `partition_restricted` was never the best choice here. It may help on larger catalogues,
+  but this was not tested.
+- The thresholds were tuned on the same data and workload that the results are reported on.
+- The sample estimator made estimates more accurate, but no decision changed at this scale.
+- The index was rebuilt after mutation. Incremental updates were not tested.
+- Only category x zone pairs were checked for estimate errors.
+- Latency is from one machine and moves with background load.

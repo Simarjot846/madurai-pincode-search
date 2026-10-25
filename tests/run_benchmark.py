@@ -9,7 +9,7 @@ from benchmark import run_all
 vecs, meta, cats, titles = load()
 
 idx = IVFIndex(nlist=200).build(vecs)
-idx.attach_original(vecs)      # needed by pure_prefilter (idx.orig_vecs)
+idx.attach_original(vecs)     
 planner = Planner(idx, meta)
 
 work = build_workload(vecs, meta, len(cats), 30)

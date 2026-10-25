@@ -19,9 +19,9 @@ print(f"before: {len(vecs)} items, after: {len(vecs2)} items\n")
 idx2 = IVFIndex(nlist=200).build(vecs2)
 idx2.attach_original(vecs2)
 
-fresh = Planner(idx2, meta2)                       # estimators built on mutated data
+fresh = Planner(idx2, meta2)                      
 stale = Planner(idx2, meta2)
-stale.indep = SelectivityEstimator(meta)           # estimators still from the OLD data
+stale.indep = SelectivityEstimator(meta)          
 stale.sample = SampleEstimator(meta)
 
 qs = vecs2[rng.choice(len(vecs2), 40, replace=False)]

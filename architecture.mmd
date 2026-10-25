@@ -1,0 +1,22 @@
+flowchart LR
+    Q["Query vector + filter<br/>(zone, category, price)"] --> E["Estimate selectivity<br/>(how many items match?)"]
+    Q --> M["Build filter mask<br/>exact_mask"]
+
+    E --> S["Sample estimator<br/>used if sample has 5+ hits"]
+    E --> C["Counter estimator<br/>independence, capped"]
+    S --> D{"Planner<br/>choose strategy"}
+    C --> D
+
+    D -->|"est. rows up to 2,500"| X["exact_scan<br/>filter first, check every survivor"]
+    D -->|"selectivity 5% or more"| P["postfilter_adaptive<br/>start at 64 partitions,<br/>double until 10 found"]
+    D -->|"in between"| R["partition_restricted<br/>only partitions with a match"]
+
+    M --> X
+    M --> P
+    M --> R
+    I[("IVF index<br/>200 partitions")] --> P
+    I --> R
+
+    X --> T["Top 10 results"]
+    P --> T
+    R --> T

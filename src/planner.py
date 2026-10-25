@@ -49,6 +49,6 @@ class Planner:
         strat, sel, src = self.choose(preds)
         if force:
             strat = force
-        mask = exact_mask(self.meta, preds)      # mask build counts toward latency
+        mask = exact_mask(self.meta, preds)    
         ids, sims = STRATEGIES[strat](self.idx, q, k, mask)
         return ids, sims, strat

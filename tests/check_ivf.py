@@ -6,7 +6,7 @@ from ivf import IVFIndex
 
 vecs = np.load("data/processed/vectors.npy")
 NQ = 300
-queries, base = vecs[:NQ], vecs[NQ:]     # queries are held out of the index
+queries, base = vecs[:NQ], vecs[NQ:]     
 
 idx = IVFIndex(nlist=200).build(base)
 s = idx.sizes()

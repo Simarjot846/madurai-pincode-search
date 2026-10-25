@@ -15,10 +15,8 @@ ZONES = [
     "Ranchi-JH", "Dehradun-UK", "Guwahati-AS", "Madurai-TN", "Raipur-CG",
     "Goa-GA", "Srinagar-JK", "Imphal-MN", "Gangtok-SK", "PortBlair-AN", "Leh-LA",
 ]
-N_BIG = 26          # zones 0..25 share almost all items
-TAIL_W = 0.0005     # each of the last 4 zones is ~0.05% of the catalogue
-
-# median price in rupees per category
+N_BIG = 26          
+TAIL_W = 0.0005     
 PRICE_MEDIAN = {
     "Arts, Crafts & Sewing": 450, "Beauty": 500, "All Beauty": 450,
     "Sports & Outdoors": 1200, "Grocery & Gourmet Food": 300,
@@ -31,11 +29,10 @@ PRICE_MEDIAN = {
     "Pet Supplies": 650,
 }
 
-# categories whose items cluster in specific zones (index into ZONES)
 FIXED_HOME = {
-    "Clothing, Shoes & Jewelry": [22],      # Madurai, the saree case
-    "Grocery & Gourmet Food": [10, 16],     # Kochi, Coimbatore
-    "Electronics": [2],                     # Bengaluru
+    "Clothing, Shoes & Jewelry": [22],     
+    "Grocery & Gourmet Food": [10, 16],     
+    "Electronics": [2],                     
 }
 
 

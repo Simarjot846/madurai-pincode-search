@@ -13,8 +13,6 @@ def mutate(vecs, meta, cats, rng, del_frac=0.10, ins_frac=0.05,
     # 10% delete
     keep = np.ones(n, dtype=bool)
     keep[rng.choice(n, int(n * del_frac), replace=False)] = False
-
-    # 5% shifted insert: clones of Pet Supplies items, all placed in one zone, pricier
     n_ins = int(n * ins_frac)
     pool = np.flatnonzero(np.asarray(meta["category"]) == C[hot_cat])
     src = rng.choice(pool, n_ins, replace=True)
@@ -25,7 +23,7 @@ def mutate(vecs, meta, cats, rng, del_frac=0.10, ins_frac=0.05,
     meta2 = {}
     for key, arr in meta.items():
         arr = np.asarray(arr)
-        if len(arr) != n:                      # not a per-row column, copy as is
+        if len(arr) != n:                    
             meta2[key] = arr
             continue
         ins = arr[src].copy()
@@ -49,7 +47,7 @@ def check_cases(planners, idx, meta, cases, queries, k=10):
         for pname, pl in planners.items():
             strat, est, src = pl.choose(preds)
             rec, lat = [], []
-            pl.search(queries[0], k, preds)                    # warm-up
+            pl.search(queries[0], k, preds)               
             for q, truth in zip(queries, truths):
                 t = time.perf_counter()
                 ids, _, _ = pl.search(q, k, preds)
